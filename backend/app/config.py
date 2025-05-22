@@ -7,7 +7,7 @@ load_dotenv()
 
 
 class Settings(BaseSettings):
-    COLAB_URL: str = os.getenv("COLAB_URL", "https://2dd0-35-237-75-1.ngrok-free.app")
+    COLAB_URL: str = os.getenv("COLAB_URL")
     MODEL_TIMEOUT: int = 30
 
 

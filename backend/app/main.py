@@ -3,6 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from .schemas import ScenarioRequest
 from .config import settings
 import httpx
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -21,43 +26,67 @@ app.add_middleware(
 @app.post("/generate-test-cases")
 async def generate_test_cases_endpoint(request: ScenarioRequest):
     try:
-        print(f"Received request: {request.scenario}")  # Debug print
+        logger.info(f"Received request: {request.scenario}")
+        
+        if not request.scenario.strip():
+            raise HTTPException(status_code=400, detail="Scenario cannot be empty")
         
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-            print(f"Sending request to Colab: {settings.COLAB_URL}")  # Debug print
+            logger.info(f"Sending request to Colab: {settings.COLAB_URL}")
             
-            response = await client.post(
-                f"{settings.COLAB_URL}/generate",
-                json={"scenario": request.scenario},
-                timeout=TIMEOUT_SECONDS
-            )
-            
-            print(f"Response status: {response.status_code}")  # Debug print
-            
-            if response.status_code == 200:
-                print(f"Successful response: {response.text[:100]}...")  # Debug print
-                return response.json()
-            else:
-                print(f"Error response: {response.text}")  # Debug print
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Colab server error: {response.text}"
+            try:
+                response = await client.post(
+                    f"{settings.COLAB_URL}/generate",
+                    json={"scenario": request.scenario},
+                    timeout=TIMEOUT_SECONDS
                 )
                 
-    except httpx.TimeoutException as e:
-        print(f"Timeout error: {str(e)}")  # Debug print
-        raise HTTPException(
-            status_code=504,
-            detail="The request to the model timed out. This could be due to high server load or a complex request. Please try again or simplify your scenario."
-        )
-    except httpx.ConnectError as e:
-        print(f"Connection error: {str(e)}")  # Debug print
-        raise HTTPException(
-            status_code=503,
-            detail="Could not connect to the model server. Please ensure the Colab notebook is running and try again."
-        )
+                logger.info(f"Response status: {response.status_code}")
+                logger.info(f"Response content: {response.text[:200]}...")  # Log first 200 chars
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        if not isinstance(data, dict) or 'test_cases' not in data:
+                            raise ValueError("Invalid response format from Colab")
+                        return data
+                    except ValueError as e:
+                        logger.error(f"JSON parsing error: {str(e)}")
+                        logger.error(f"Raw response: {response.text}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Invalid response format from Colab: {str(e)}"
+                        )
+                else:
+                    logger.error(f"Error response from Colab: {response.text}")
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"Colab server error: {response.text}"
+                    )
+                    
+            except httpx.TimeoutException as e:
+                logger.error(f"Timeout error: {str(e)}")
+                raise HTTPException(
+                    status_code=504,
+                    detail="The request to the model timed out. Please try again or simplify your scenario."
+                )
+            except httpx.ConnectError as e:
+                logger.error(f"Connection error: {str(e)}")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Could not connect to the model server. Please ensure the Colab notebook is running and try again."
+                )
+            except httpx.RequestError as e:
+                logger.error(f"Request error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error making request to Colab: {str(e)}"
+                )
+                
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")  # Debug print
+        logger.exception("Unexpected error in generate_test_cases_endpoint")
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"
