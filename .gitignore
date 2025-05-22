@@ -1,0 +1,9 @@
+# Ignore node_modules
+node_modules/
+
+# Ignore environment variables
+.env
+.env.*   # If you have files like .env.local, .env.production, etc.
+
+# ignore cache files 
+__pycache__/
